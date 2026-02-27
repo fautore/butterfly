@@ -1,30 +1,9 @@
 const std = @import("std");
 const os = std.os;
 const net = std.net;
-const lib = @import("butterfly_lib");
+const lib = @import("lib.zig");
 
 const MAX_CONNECTIONS = 10;
-
-// fn handleConnection(connection: std.net.Server.Connection) !void {
-//     const buff = try std.heap.page_allocator.alloc(u8, 100);
-//     while (connection.stream.read(buff)) |size| {
-//         if (size == 0) {
-//             return;
-//         }
-//         const trimBuff = std.mem.trimRight(u8, buff[0..size], "\n");
-//         std.debug.print("Read {d} bytes {s}\n", .{ size, trimBuff[0 .. size - 1] });
-//     } else |err| {
-//         std.debug.panic("Panic {?}", .{err});
-//     }
-// }
-//
-// fn pollConnectionsForUpdates(clients: *[]?Client) void {
-//     while (true) {}
-// }
-//
-// const Client = struct {
-//     connection: std.net.Server.Connection,
-// };
 
 const ErrorOutOfConnections = error{};
 
@@ -88,6 +67,20 @@ fn workerFn(connectionQueue: *ConnectionQueue) void {
         // std.debug.print("Connections in queue {d}\n", .{connectionQueue.openConnections});
         const n = os.linux.epoll_wait(connectionQueue.epoll_fd, events.ptr, 64, -1);
         std.debug.print("Open connection {d}\n", .{n});
+        var block = lib.Tree.New();
+        block.addCoordinate(
+            lib.GeoLog{
+                .timestamp = std.time.milliTimestamp(),
+                .coordinates = .{ .lat = 45.0, .lon = 45.0 },
+            },
+        );
+        lib.writeToDisk(&block) catch |err| {
+            std.debug.panic("{}\n", .{err});
+        };
+        const newBlock = lib.readFromDisk(std.heap.page_allocator) catch |err| {
+            std.debug.panic("{}\n", .{err});
+        };
+        std.debug.print("{}", .{newBlock});
         std.Thread.sleep(1 * std.time.ns_per_s);
     }
 }
@@ -98,11 +91,14 @@ pub fn main() !void {
     _ = try pool.init(.{ .allocator = alloc });
     defer pool.deinit();
 
+    const port = 3000;
+
     const addr = std.net.Address{
-        .in = try std.net.Ip4Address.parse("127.0.0.1", 3000),
+        .in = try std.net.Ip4Address.parse("127.0.0.1", port),
     };
     var server = try addr.listen(.{});
     defer server.deinit();
+    std.log.info("Server listening for connections on port {d}", .{port});
 
     var connectionQueue = try ConnectionQueue.init();
 
